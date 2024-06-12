@@ -17,7 +17,9 @@ import torchmetrics as metrics
 from pyre_extensions import none_throws
 from torch import distributed as dist
 from torch.utils.data import DataLoader
-from torchrec import EmbeddingBagCollection
+
+# from torchrec import EmbeddingBagCollection
+from embeddings.embedding_modules import EmbeddingBagCollection
 from torchrec.datasets.criteo import DEFAULT_CAT_NAMES, DEFAULT_INT_NAMES
 from torchrec.distributed import TrainPipelineSparseDist
 from torchrec.distributed.comm import get_local_size
@@ -35,6 +37,7 @@ from torchrec.optim.apply_optimizer_in_backward import apply_optimizer_in_backwa
 from torchrec.optim.keyed import CombinedOptimizer, KeyedOptimizerWrapper
 from torchrec.optim.optimizers import in_backward_optimizer_filter
 from tqdm import tqdm
+
 
 # OSS import
 try:
@@ -307,6 +310,13 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         "--print_sharding_plan",
         action="store_true",
         help="Print the sharding plan used for each embedding table.",
+    )
+    parser.add_argument(
+        "--embedding",
+        type=str,
+        default="vanilla",
+        choices=["vanilla", "qre", "dhe"],
+        help="Embedding type.",
     )
     return parser.parse_args(argv)
 
@@ -595,7 +605,7 @@ def main(argv: List[str]) -> None:
     if args.interaction_type == InteractionType.ORIGINAL:
         dlrm_model = DLRM(
             embedding_bag_collection=EmbeddingBagCollection(
-                tables=eb_configs, device=torch.device("meta")
+                tables=eb_configs, device=torch.device("meta"), mode=args.embedding
             ),
             dense_in_features=len(DEFAULT_INT_NAMES),
             dense_arch_layer_sizes=args.dense_arch_layer_sizes,

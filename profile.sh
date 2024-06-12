@@ -12,21 +12,24 @@ DISTRIBUTED_ARGS="
     --master_addr localhost \
     --master_port 5678
 "
-power=5
+power=6
 bs=$((2**$power))
 
 tbs=$((2**18))
-
+steps=256
 # log filename: train-date.log
 filename="train-$(date +'%Y-%m-%d-%H-%M-%S').log"
 echo "Logging to $filename"
 
+/usr/local/cuda/bin/nsys profile -o qre64-2 --force-overwrite=true \
 torchrun $DISTRIBUTED_ARGS dlrm_main.py \
     --epochs 1 \
     --batch_size $bs \
     --drop_last_training_batch \
-    --test_batch_size $tbs \
-    --limit_train_batches 16384 \
+    --test_batch_size $bs \
+    --limit_train_batches $steps \
+    --limit_val_batches $steps \
+    --limit_test_batches $steps \
     --dataset_name criteo_kaggle \
     --num_embeddings 100_000 \
     --num_embeddings_per_feature $embs \
@@ -42,7 +45,6 @@ torchrun $DISTRIBUTED_ARGS dlrm_main.py \
     --mmap_mode \
     --learning_rate 1 \
     --in_memory_binary_criteo_path /root/dlrm-dhe/torchrec_dlrm/SSD/display-preprocessed \
-    --lr_warmup_steps 4096 \
-    --lr_decay_start 4096 \
-    --lr_decay_steps 12288 \
+    --print_sharding_plan \
+    --embedding dhe \
     --validation_freq_within_epoch 2048 | tee $filename
