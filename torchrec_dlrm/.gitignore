@@ -2,3 +2,4 @@
 SSD
 *.sh
 !.gitignore
+!train_longer.sh
