@@ -17,11 +17,12 @@ class DHEFFN(nn.Module):
         super(DHEFFN, self).__init__()
         self.dense = nn.Linear(input_dim, output_dim)
         # initialize weights
-        nn.init.uniform_(self.dense.weight, np.sqrt(1 / k))
-        self.bn = nn.BatchNorm1d(output_dim)
-        self.activation = nn.Mish(inplace=True)
+        nn.init.uniform_(self.dense.weight, 1 / k)
+        self.bn = nn.BatchNorm1d(output_dim, affine=False)
+        self.activation = nn.Mish(inplace=False)
 
     def forward(self, x):
+        bs = x.shape[0]
         x = self.dense(x)
         x = self.bn(x)
         x = self.activation(x)
@@ -42,9 +43,11 @@ def generate_random_primes(k, m):
 
 def generate_random_numbers(k, m):
     # generate k random numbers in [1, m)
-    a_list = np.random.randint(1, m, k).tolist()
-    b_list = np.random.randint(1, m, k).tolist()
-    return torch.Tensor(a_list).type(torch.long), torch.Tensor(b_list).type(torch.long)
+    a_list = np.random.randint(1, 1000, k).tolist()
+    b_list = np.random.randint(1, 1000, k).tolist()
+    return torch.Tensor(a_list).type(torch.int64), torch.Tensor(b_list).type(
+        torch.int64
+    )
 
 
 class DHE(nn.Module):
@@ -145,9 +148,9 @@ class DHE(nn.Module):
         self.m = m
         self.reduce = reduce
 
-        self.a_list = a_list
-        self.b_list = b_list
-        self.p_list = p_list
+        self.a_list = a_list.clone()
+        self.b_list = b_list.clone()
+        self.p_list = p_list.clone()
 
         self.layers = nn.ModuleList()
         # first layer
@@ -162,38 +165,64 @@ class DHE(nn.Module):
         self.layers = nn.Sequential(*self.layers)
         self.uniform = uniform
 
-    def _transform(self, x):
-        # input: s x 1
-        # output: s x k
-        x = x.unsqueeze(-1).expand(-1, len(self.a_list))
+    def _transform(self, x, lens, eps=1e-5):
+        # input: b x s x 1
+        # output: b x s x k
+        k = len(self.a_list)
+        x = x.repeat(1, 1, k).view(x.size(0), x.size(1), k)
         # transform: x[b,i] = (a_list[i] * x[i] + b_list[i]) % p_list[i] % m
         x = (self.a_list * x + self.b_list) % self.p_list % self.m + 1
-        x = (x - 1) / (self.m - 1) * 2 - 1
+        x = (x - 1) / (self.m - 1)
         e = torch.zeros_like(x)
-        x_even = x[:, 0::2]
-        x_odd = x[:, 1::2]
-        e[:, 0::2] = torch.sqrt(-2 * torch.log(x_even)) * torch.cos(2 * np.pi * x_odd)
-        e[:, 1::2] = torch.sqrt(-2 * torch.log(x_even)) * torch.sin(2 * np.pi * x_odd)
+        x_even = x[:, :, 0::2]
+        x_odd = x[:, :, 1::2].clamp(min=eps, max=1 - eps)
+        e[:, :, 0::2] = torch.sqrt(-2 * torch.log(x_odd)) * torch.cos(
+            2 * np.pi * x_even
+        )
+        e[:, :, 1::2] = torch.sqrt(-2 * torch.log(x_odd)) * torch.sin(
+            2 * np.pi * x_even
+        )
 
         # reduce operation
         # e[s, k] -> e[k]
-        if self.reduce == "sum":
-            e = e.sum(dim=0)
-        elif self.reduce == "mean":
-            e = e.mean(dim=0)
+        mask = torch.arange(x.size(1), device=x.device).unsqueeze(0) < lens.unsqueeze(1)
+        e = e * mask.unsqueeze(2)
+        e = e.sum(dim=1)
+        if self.reduce == "mean":
+            e = e / lens.unsqueeze(1)
         return e
 
-    def forward(self, input, offsets, per_sample_weights=None):
+    def to(self, device):
+        super(DHE, self).to(device)
+        self.a_list = self.a_list.to(device)
+        self.b_list = self.b_list.to(device)
+        self.p_list = self.p_list.to(device)
+        return self
+
+    def forward(self, x, offsets, per_sample_weights=None):
         # input: Sequence of indices into the embedding tables
         # offsets:  It specifies the starting index position of each bag (sequence) in input.
         # use offset to separate inputs
 
+        # check if input and lists are in the same device
+        if x.device != self.a_list.device:
+            self.a_list = self.a_list.to(x.device)
+            self.b_list = self.b_list.to(x.device)
+            self.p_list = self.p_list.to(x.device)
+
         sp = offsets.shape[0]
-        if type(sp) != int:
-            sp = 64
-        input_rearranged = [
-            input[offsets[i] : offsets[i + 1]] for i in torch.arange(sp - 1)
-        ]
-        transformed = torch.stack([self._transform(x) for x in input_rearranged])
+
+        lens = [offsets[i + 1] - offsets[i] for i in range(sp - 1)]
+        lens.append(x.shape[0] - offsets[-1])
+        lens = torch.Tensor(lens).type(torch.long).to(x.device)
+        max_len = max(lens)
+        input_stacked = torch.zeros(sp, max_len, dtype=x.dtype, device=x.device)
+        for i, j in enumerate(lens):
+            input_stacked[i, :j] = x[offsets[i] : offsets[i] + j]
+        transformed = self._transform(input_stacked, lens)
+
         output = self.layers(transformed)
+
+        # print(offsets.shape, input.shape)
+        # print(output.shape)
         return output

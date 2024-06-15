@@ -105,6 +105,7 @@ from tricks.md_embedding_bag import md_solver, PrEmbeddingBag
 
 # quotient-remainder trick
 from tricks.qr_embedding_bag import QREmbeddingBag
+from tricks.dhe import DHE
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -273,9 +274,8 @@ class DLRM_Net(nn.Module):
                     low=-np.sqrt(1 / n), high=np.sqrt(1 / n), size=(n, _m)
                 ).astype(np.float32)
                 EE.embs.weight.data = torch.tensor(W, requires_grad=True)
-            elif self.dh_flag and n > self.dh_threshold:
-                raise NotImplementedError("DHE is not implemented yet")
-                pass
+            elif self.dh_flag:
+                EE = DHE(embedding_dim=m)
             else:
                 EE = nn.EmbeddingBag(n, m, mode="sum", sparse=True)
                 # initialize embeddings
@@ -309,6 +309,7 @@ class DLRM_Net(nn.Module):
         sync_dense_params=True,
         loss_threshold=0.0,
         ndevices=-1,
+        dh_flag=False,
         qr_flag=False,
         qr_operation="mult",
         qr_collisions=0,
@@ -352,6 +353,7 @@ class DLRM_Net(nn.Module):
             self.md_flag = md_flag
             if self.md_flag:
                 self.md_threshold = md_threshold
+            self.dh_flag = dh_flag
 
             # If running distributed, get local slice of embedding tables
             if ext_dist.my_size > 1:
@@ -932,6 +934,7 @@ def run():
     parser.add_argument("--qr-threshold", type=int, default=200)
     parser.add_argument("--qr-operation", type=str, default="mult")
     parser.add_argument("--qr-collisions", type=int, default=4)
+    parser.add_argument("--dh-flag", action="store_true", default=False)
     # activations and loss
     parser.add_argument("--activation-function", type=str, default="relu")
     parser.add_argument("--loss-function", type=str, default="mse")  # or bce or wbce
@@ -995,7 +998,7 @@ def run():
     # gpu
     parser.add_argument("--use-gpu", action="store_true", default=False)
     # distributed
-    parser.add_argument("--local_rank", type=int, default=-1)
+    parser.add_argument("--local-rank", type=int, default=-1)
     parser.add_argument("--dist-backend", type=str, default="")
     # debugging and profiling
     parser.add_argument("--print-freq", type=int, default=1)
@@ -1304,6 +1307,7 @@ def run():
         qr_operation=args.qr_operation,
         qr_collisions=args.qr_collisions,
         qr_threshold=args.qr_threshold,
+        dh_flag=args.dh_flag,
         md_flag=args.md_flag,
         md_threshold=args.md_threshold,
         weighted_pooling=args.weighted_pooling,
