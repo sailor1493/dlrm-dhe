@@ -212,6 +212,7 @@ Profiling은 Train 총 256 step, Validation 256 Step, Test 256 Step 진행하였
 Embedding Table 26개는 Table Wise로 분산되었다.
 
 nsys 프로파일러 실행 결과 이미지는 아래와 같다.
+
 ![img](nsys.png)
 
 총 커널 실행 시간 중 73.3%는 nccl SendRecv Kernel이 차지하여 가장 큰 비중을 차지했으며, 그 다음은 AllReduce_Sum 커널(16.3%)이다. 즉, 해당 application의 훈련 과정에서는 Communication이 큰 시간을 차지하며, Compute Unit의 활용도가 낮을 수 있다.
@@ -292,31 +293,41 @@ DHE에서 GPU Time이 다른 Embedding 기법에 비해 월등히 높게 측정�
 ### Profiling Results (GPU)
 
 Vanilla Embedding
+
 ![vanilla_gpu.png](vanilla_gpu.png)
 
 QRE Embedding
+
 ![qre_gpu.png](qre_gpu.png)
 
 DHE Embedding
+
 ![dhe_gpu.png](dhe_gpu.png)
 
 ### Profiling Results (CPU)
+
 Vanilla Embedding
+
 ![vanilla_gpu.png](vanilla_cpu.png)
 
 QRE Embedding
+
 ![qre_cpu.png](qre_cpu.png)
 
 DHE Embedding
+
 ![dhe_cpu.png](dhe_cpu.png)
 
 ### 훈련 결과
 
 Vanilla Embedding
+
 ![vanilla-training-result.png](vanilla-training-result.png)
 
 QRE Embedding
+
 ![qre-training-result.png](qre-training-result.png)
 
 DHE Embedding
+
 ![dhe-training-result.png](dhe-training-result.png)
